@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <string.h>
+#include <openssl/sha.h> // Thêm d? dùng SHA256
 
 #define N 16
 #define K 8
@@ -7,6 +8,7 @@
 
 int G_prime[K][N];
 
+// Ğ?c khóa công khai G'
 int read_public_key() {
     FILE *fp = fopen("public_key.txt", "r");
     if (!fp) {
@@ -20,7 +22,7 @@ int read_public_key() {
             if (c == '0' || c == '1') {
                 G_prime[i][j] = c - '0';
             } else {
-                j--; // Bá» qua khoáº£ng tráº¯ng hoáº·c xuá»‘ng dÃ²ng
+                j--; // B? qua kı t? không ph?i 0/1
             }
         }
     }
@@ -28,6 +30,7 @@ int read_public_key() {
     return 1;
 }
 
+// Nhân ma tr?n G v?i vector l?i e ? tính h?i ch?ng
 void matrix_vector_multiply(int G[K][N], int e[N], int result[K]) {
     for (int i = 0; i < K; i++) {
         result[i] = 0;
@@ -37,16 +40,30 @@ void matrix_vector_multiply(int G[K][N], int e[N], int result[K]) {
     }
 }
 
+// Tr?ng s? Hamming c?a vector e
 int hamming_weight(int e[N]) {
     int weight = 0;
     for (int i = 0; i < N; i++) weight += e[i];
     return weight;
 }
 
+// Bam thông di?p và chuy?n thành h?i ch?ng k? v?ng (d?ng bit)
+void hash_message_to_syndrome(const char *message, int s_expected[K]) {
+    unsigned char hash[SHA256_DIGEST_LENGTH];
+    SHA256((unsigned char *)message, strlen(message), hash);
+
+    for (int i = 0; i < K; i++) {
+        int byte_index = i / 8;
+        int bit_index = i % 8;
+        s_expected[i] = (hash[byte_index] >> (7 - bit_index)) & 1;
+    }
+}
+
 int main() {
     char message[256];
     int e[N];
     int syndrome[K];
+    int s_expected[K];
 
     if (!read_public_key()) return 1;
 
@@ -56,9 +73,11 @@ int main() {
         return 1;
     }
 
+    // Ğ?c thông di?p
     fgets(message, sizeof(message), fp);
     message[strcspn(message, "\n")] = 0;
 
+    // Ğ?c vector l?i e
     for (int i = 0; i < N; i++) {
         char c;
         fscanf(fp, "%c", &c);
@@ -67,17 +86,35 @@ int main() {
     }
     fclose(fp);
 
+    // Tính h?i ch?ng t? e
     matrix_vector_multiply(G_prime, e, syndrome);
 
+    // Tính h?i ch?ng k? v?ng t? thông di?p dã bam
+    hash_message_to_syndrome(message, s_expected);
 
+    // So sánh h?i ch?ng
+    int syndrome_match = 1;
+    for (int i = 0; i < K; i++) {
+        if (syndrome[i] != s_expected[i]) {
+            syndrome_match = 0;
+            break;
+        }
+    }
+
+    // Ki?m tra tính h?p l?
     int valid = 1;
-    if (hamming_weight(e) > T) valid = 0;
+    if (hamming_weight(e) > T || !syndrome_match) valid = 0;
 
-    // Debug: in syndrome
-    printf("Syndrome: ");
+    // Debug: In ra h?i ch?ng và h?i ch?ng k? v?ng
+    printf("Syndrome (calculated):        ");
     for (int i = 0; i < K; i++) printf("%d", syndrome[i]);
     printf("\n");
 
+    printf("Expected Syndrome (from msg): ");
+    for (int i = 0; i < K; i++) printf("%d", s_expected[i]);
+    printf("\n");
+
+    // In thông di?p và k?t qu?
     printf("Thong diep: %s\n", message);
     if (valid) {
         printf("Chu ky hop le! Thong diep toan ven va tu nguon tin cay.\n");
